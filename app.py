@@ -94,15 +94,16 @@ st.markdown("""
 
     /* Design System Tokens */
     :root {
+        color-scheme: light;
         --bg-main: #F7F5FF;
         --card-bg: #FFFFFF;
         --lavender-accent: #E9E2FF;
         --blue-accent: #E2F0FF;
         --mint-accent: #DDF7EA;
         --pink-accent: #FFE5EF;
-        --text-main: #25233A;
-        --text-secondary: #77758A;
-        --border-color: #E9E6F2;
+        --text-main: #30294B;
+        --text-secondary: #77718A;
+        --border-color: #E8E2F2;
         --primary-btn: #7663C7;
         --primary-hover: #6350B5;
         --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -118,6 +119,7 @@ st.markdown("""
     /* Global Body and Typography */
     html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"],
     .main, [data-testid="stMainBlockContainer"] {
+        color-scheme: light !important;
         background-color: var(--bg-main) !important;
         color: var(--text-main) !important;
         font-family: var(--font-family) !important;
@@ -532,49 +534,127 @@ st.markdown("""
     }
 
     /* Auth Inputs & Focus State */
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] {
-        margin-bottom: 12px !important;
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"],
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] {
+        margin-bottom: 14px !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="base-input"] {
+
+    /* BaseWeb Outer Input Wrapper (Fixes dark background container) */
+    div[class*="st-key-auth_card"] div[data-baseweb="input"],
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="input"],
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="input"] {
+        background-color: #FFFFFF !important;
         background: #FFFFFF !important;
-        border: 1px solid var(--border-color) !important;
+        border: 1px solid #E8E2F2 !important;
         border-radius: 10px !important;
         min-height: 42px !important;
         height: 42px !important;
         box-sizing: border-box !important;
+        overflow: hidden !important;
         transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
-        border-color: var(--primary-btn) !important;
+
+    /* BaseWeb Inner Input Wrapper */
+    div[class*="st-key-auth_card"] div[data-baseweb="base-input"],
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="base-input"],
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="base-input"] {
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        border: none !important;
+        border-radius: 10px !important;
+        min-height: 40px !important;
+        height: 100% !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+    }
+
+    /* Visible Purple Focus State on Wrappers */
+    div[class*="st-key-auth_card"] div[data-baseweb="input"]:focus-within,
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="input"]:focus-within,
+    div[class*="st-key-auth_card"] div[data-baseweb="base-input"]:focus-within {
+        border-color: #7663C7 !important;
         box-shadow: 0 0 0 2px rgba(118, 99, 199, 0.22) !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] input {
-        background: transparent !important;
+
+    /* Text & Password Input Field Elements */
+    div[class*="st-key-auth_card"] input,
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] input,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input {
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
         border: none !important;
         outline: none !important;
         box-shadow: none !important;
         height: 100% !important;
+        min-height: 38px !important;
         font-size: 14px !important;
-        color: var(--text-main) !important;
+        color: #30294B !important;
+        -webkit-text-fill-color: #30294B !important;
         padding: 0 12px !important;
+        border-radius: 10px !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] input:focus {
+
+    div[class*="st-key-auth_card"] input:focus,
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] input:focus,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input:focus {
         border: none !important;
         box-shadow: none !important;
         outline: none !important;
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #30294B !important;
+        -webkit-text-fill-color: #30294B !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button {
-        background: transparent !important;
+
+    /* High-Contrast Placeholder Styling */
+    div[class*="st-key-auth_card"] input::placeholder,
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] input::placeholder,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input::placeholder,
+    div[class*="st-key-auth_card"] input::-webkit-input-placeholder {
+        color: #77718A !important;
+        -webkit-text-fill-color: #77718A !important;
+        opacity: 1 !important;
+        font-size: 14px !important;
+    }
+
+    /* Password Visibility Toggle Button & SVG Icon */
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button,
+    div[class*="st-key-auth_card"] div[data-baseweb="input"] button {
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
         border: none !important;
         box-shadow: none !important;
-        color: var(--text-secondary) !important;
+        color: #77718A !important;
         padding: 0 10px !important;
         cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button:hover {
-        color: var(--primary-btn) !important;
-        background: transparent !important;
-        border: none !important;
+
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button svg,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button svg,
+    div[class*="st-key-auth_card"] div[data-baseweb="input"] button svg {
+        fill: #77718A !important;
+        color: #77718A !important;
+        transition: color 0.15s ease, fill 0.15s ease !important;
+    }
+
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button:hover,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button:hover,
+    div[class*="st-key-auth_card"] div[data-baseweb="input"] button:hover {
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #7663C7 !important;
+    }
+
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button:hover svg,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button:hover svg,
+    div[class*="st-key-auth_card"] div[data-baseweb="input"] button:hover svg {
+        fill: #7663C7 !important;
+        color: #7663C7 !important;
     }
 
     /* Auth Primary Sign In Button */
@@ -674,8 +754,18 @@ st.markdown("""
     div[class*="st-key-auth_card"] [data-testid="stRadio"] label {
         font-size: 13.5px !important;
         font-weight: 500 !important;
-        color: var(--text-main) !important;
+        color: #30294B !important;
         cursor: pointer !important;
+    }
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label p {
+        color: #30294B !important;
+        font-weight: 500 !important;
+    }
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"] {
+        cursor: pointer !important;
+    }
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"] div:first-child {
+        border-color: #7663C7 !important;
     }
     div[class*="st-key-auth_card"] [data-testid="stExpander"] {
         background: #FAF9FF !important;
@@ -746,20 +836,36 @@ st.markdown("""
         padding: 22px !important;
         box-shadow: 0 4px 18px rgba(118, 99, 199, 0.04) !important;
     }
+    [data-testid="stTextInput"] div[data-baseweb="input"],
+    [data-testid="stPasswordInput"] div[data-baseweb="input"],
+    [data-testid="stNumberInput"] div[data-baseweb="input"],
     [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
     [data-testid="stPasswordInput"] input, [data-testid="stTextArea"] textarea,
     [data-testid="stSelectbox"] div[data-baseweb="select"],
     [data-testid="stMultiSelect"] div[data-baseweb="select"] {
+        background-color: #FFFFFF !important;
         background: #FFFFFF !important;
-        color: var(--text-main) !important;
-        border-color: var(--border-color) !important;
+        color: #30294B !important;
+        -webkit-text-fill-color: #30294B !important;
+        border-color: #E8E2F2 !important;
         border-radius: 10px !important;
         font-size: 14px !important;
     }
+    [data-testid="stTextInput"] input::placeholder,
+    [data-testid="stPasswordInput"] input::placeholder,
+    [data-testid="stNumberInput"] input::placeholder,
+    [data-testid="stTextArea"] textarea::placeholder {
+        color: #77718A !important;
+        -webkit-text-fill-color: #77718A !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+    [data-testid="stPasswordInput"] div[data-baseweb="input"]:focus-within,
+    [data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
     [data-testid="stTextInput"] input:focus, [data-testid="stNumberInput"] input:focus,
     [data-testid="stPasswordInput"] input:focus {
-        border-color: var(--primary-btn) !important;
-        box-shadow: 0 0 0 1px var(--primary-btn) !important;
+        border-color: #7663C7 !important;
+        box-shadow: 0 0 0 2px rgba(118, 99, 199, 0.22) !important;
     }
     [data-testid="stWidgetLabel"] label, [data-testid="stWidgetLabel"] p {
         font-size: 13.5px !important;
