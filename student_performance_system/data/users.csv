@@ -1,0 +1,2 @@
+user_id,name,email,roll_number,course_branch,password_hash,role,created_at,approval_status,department,designation,phone,is_approver
+TCH101,Prof. Sharma,teacher@school.edu,TEACHER01,Faculty of Computer Science & IT,98bc8b37973456e2190d7b97d6381534$1008457b1f69e73ec14d529c044bc231194cbf6f9aacb539d71914f5b84b5241,teacher,2026-10-25 17:37:44,approved,Computer Science & IT,Senior Professor & Department Chair,,True
