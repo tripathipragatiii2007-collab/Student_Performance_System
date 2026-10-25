@@ -539,95 +539,91 @@ st.markdown("""
         margin-bottom: 14px !important;
     }
 
-    /* BaseWeb Outer Input Wrapper (Fixes dark background container) */
-    div[class*="st-key-auth_card"] div[data-baseweb="input"],
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="input"],
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="input"] {
-        background-color: #FFFFFF !important;
+    /* Complete Input Component Container: wraps both input and visibility button */
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-testid="stTextInputRootElement"],
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-testid="stTextInputRootElement"],
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="base-input"],
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="base-input"] {
         background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
         border: 1px solid #E8E2F2 !important;
         border-radius: 10px !important;
         min-height: 42px !important;
         height: 42px !important;
         box-sizing: border-box !important;
+        display: flex !important;
+        align-items: center !important;
         overflow: hidden !important;
         transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
     }
 
-    /* BaseWeb Inner Input Wrapper */
-    div[class*="st-key-auth_card"] div[data-baseweb="base-input"],
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="base-input"],
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="base-input"] {
-        background-color: #FFFFFF !important;
-        background: #FFFFFF !important;
-        border: none !important;
-        border-radius: 10px !important;
-        min-height: 40px !important;
-        height: 100% !important;
-        box-sizing: border-box !important;
-        width: 100% !important;
-    }
-
-    /* Visible Purple Focus State on Wrappers */
-    div[class*="st-key-auth_card"] div[data-baseweb="input"]:focus-within,
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="input"]:focus-within,
-    div[class*="st-key-auth_card"] div[data-baseweb="base-input"]:focus-within {
+    /* Focus State on Container */
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-testid="stTextInputRootElement"]:focus-within,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-testid="stTextInputRootElement"]:focus-within,
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="base-input"]:focus-within {
         border-color: #7663C7 !important;
         box-shadow: 0 0 0 2px rgba(118, 99, 199, 0.22) !important;
     }
 
-    /* Text & Password Input Field Elements */
-    div[class*="st-key-auth_card"] input,
+    /* Inner Input Container: transparent and borderless to prevent nesting */
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] div[data-baseweb="input"],
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] div[data-baseweb="input"] {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        height: 100% !important;
+        flex: 1 !important;
+        min-width: 0 !important;
+    }
+
+    /* Native Text & Password Input Element */
     div[class*="st-key-auth_card"] [data-testid="stTextInput"] input,
     div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input {
-        background-color: #FFFFFF !important;
-        background: #FFFFFF !important;
+        background: transparent !important;
+        background-color: transparent !important;
         border: none !important;
         outline: none !important;
         box-shadow: none !important;
         height: 100% !important;
-        min-height: 38px !important;
         font-size: 14px !important;
         color: #30294B !important;
         -webkit-text-fill-color: #30294B !important;
         padding: 0 12px !important;
-        border-radius: 10px !important;
+        flex: 1 !important;
+        min-width: 0 !important;
     }
 
-    div[class*="st-key-auth_card"] input:focus,
     div[class*="st-key-auth_card"] [data-testid="stTextInput"] input:focus,
     div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input:focus {
         border: none !important;
-        box-shadow: none !important;
         outline: none !important;
-        background-color: #FFFFFF !important;
-        background: #FFFFFF !important;
-        color: #30294B !important;
-        -webkit-text-fill-color: #30294B !important;
+        box-shadow: none !important;
     }
 
-    /* High-Contrast Placeholder Styling */
-    div[class*="st-key-auth_card"] input::placeholder,
+    /* High-Contrast Placeholder */
     div[class*="st-key-auth_card"] [data-testid="stTextInput"] input::placeholder,
     div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input::placeholder,
-    div[class*="st-key-auth_card"] input::-webkit-input-placeholder {
-        color: #77718A !important;
-        -webkit-text-fill-color: #77718A !important;
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] input::-webkit-input-placeholder,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] input::-webkit-input-placeholder {
+        color: #77718C !important;
+        -webkit-text-fill-color: #77718C !important;
         opacity: 1 !important;
         font-size: 14px !important;
     }
 
-    /* Password Visibility Toggle Button & SVG Icon */
+    /* Seamless Password Visibility Toggle Button inside Container */
     div[class*="st-key-auth_card"] [data-testid="stTextInput"] button,
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button,
-    div[class*="st-key-auth_card"] div[data-baseweb="input"] button {
-        background-color: #FFFFFF !important;
-        background: #FFFFFF !important;
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button {
+        background: transparent !important;
+        background-color: transparent !important;
         border: none !important;
+        outline: none !important;
         box-shadow: none !important;
-        color: #77718A !important;
+        color: #77718C !important;
         padding: 0 10px !important;
+        height: 100% !important;
         cursor: pointer !important;
         display: flex !important;
         align-items: center !important;
@@ -635,24 +631,16 @@ st.markdown("""
     }
 
     div[class*="st-key-auth_card"] [data-testid="stTextInput"] button svg,
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button svg,
-    div[class*="st-key-auth_card"] div[data-baseweb="input"] button svg {
-        fill: #77718A !important;
-        color: #77718A !important;
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button span,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button svg {
+        fill: #77718C !important;
+        color: #77718C !important;
         transition: color 0.15s ease, fill 0.15s ease !important;
     }
 
-    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button:hover,
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button:hover,
-    div[class*="st-key-auth_card"] div[data-baseweb="input"] button:hover {
-        background-color: #FFFFFF !important;
-        background: #FFFFFF !important;
-        color: #7663C7 !important;
-    }
-
     div[class*="st-key-auth_card"] [data-testid="stTextInput"] button:hover svg,
-    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button:hover svg,
-    div[class*="st-key-auth_card"] div[data-baseweb="input"] button:hover svg {
+    div[class*="st-key-auth_card"] [data-testid="stTextInput"] button:hover span,
+    div[class*="st-key-auth_card"] [data-testid="stPasswordInput"] button:hover svg {
         fill: #7663C7 !important;
         color: #7663C7 !important;
     }
@@ -743,13 +731,40 @@ st.markdown("""
         outline-offset: 2px !important;
     }
 
-    /* Auth Radio & Expander inside card */
+    /* Auth Radio: Clean transparent background without grey highlight */
     div[class*="st-key-auth_card"] [data-testid="stRadio"] {
-        margin-bottom: 12px !important;
+        margin-bottom: 14px !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stRadio"] [role="radiogroup"] {
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [role="radiogroup"],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioGroup"] {
         gap: 16px !important;
         padding: 2px 0 !important;
+        background: transparent !important;
+    }
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"]:hover,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"]:focus,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"]:active,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"][data-focus-visible],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"][data-focused],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"][data-hovered],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [data-testid="stRadioOption"][data-selected],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label:hover,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label:focus,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label:active,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"],
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"]:hover,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"]:focus,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [role="radiogroup"] > div,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [role="radiogroup"] > label,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [role="radiogroup"] > div:hover,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] [role="radiogroup"] > div:focus {
+        background: transparent !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        border: none !important;
+        outline: none !important;
     }
     div[class*="st-key-auth_card"] [data-testid="stRadio"] label {
         font-size: 13.5px !important;
@@ -757,12 +772,13 @@ st.markdown("""
         color: #30294B !important;
         cursor: pointer !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stRadio"] label p {
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label p,
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] label span {
         color: #30294B !important;
         font-weight: 500 !important;
     }
-    div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"] {
-        cursor: pointer !important;
+    div[class*="st-key-auth_card"] [data-testid="stRadio"] input[type="radio"] {
+        accent-color: #7663C7 !important;
     }
     div[class*="st-key-auth_card"] [data-testid="stRadio"] div[data-baseweb="radio"] div:first-child {
         border-color: #7663C7 !important;
@@ -836,19 +852,40 @@ st.markdown("""
         padding: 22px !important;
         box-shadow: 0 4px 18px rgba(118, 99, 199, 0.04) !important;
     }
-    [data-testid="stTextInput"] div[data-baseweb="input"],
-    [data-testid="stPasswordInput"] div[data-baseweb="input"],
+    [data-testid="stTextInput"] div[data-testid="stTextInputRootElement"],
+    [data-testid="stPasswordInput"] div[data-testid="stTextInputRootElement"],
+    [data-testid="stTextInput"] div[data-baseweb="base-input"],
+    [data-testid="stPasswordInput"] div[data-baseweb="base-input"],
     [data-testid="stNumberInput"] div[data-baseweb="input"],
-    [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
-    [data-testid="stPasswordInput"] input, [data-testid="stTextArea"] textarea,
+    [data-testid="stNumberInput"] div[data-testid="stNumberInputContainer"],
+    [data-testid="stTextArea"] textarea,
     [data-testid="stSelectbox"] div[data-baseweb="select"],
     [data-testid="stMultiSelect"] div[data-baseweb="select"] {
         background-color: #FFFFFF !important;
         background: #FFFFFF !important;
         color: #30294B !important;
         -webkit-text-fill-color: #30294B !important;
+        border: 1px solid #E8E2F2 !important;
         border-color: #E8E2F2 !important;
         border-radius: 10px !important;
+        font-size: 14px !important;
+    }
+    [data-testid="stTextInput"] div[data-baseweb="input"],
+    [data-testid="stPasswordInput"] div[data-baseweb="input"] {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stTextInput"] input,
+    [data-testid="stPasswordInput"] input,
+    [data-testid="stNumberInput"] input {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: #30294B !important;
+        -webkit-text-fill-color: #30294B !important;
         font-size: 14px !important;
     }
     [data-testid="stTextInput"] input::placeholder,
@@ -859,13 +896,22 @@ st.markdown("""
         -webkit-text-fill-color: #77718A !important;
         opacity: 1 !important;
     }
-    [data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
-    [data-testid="stPasswordInput"] div[data-baseweb="input"]:focus-within,
+    [data-testid="stTextInput"] div[data-testid="stTextInputRootElement"]:focus-within,
+    [data-testid="stPasswordInput"] div[data-testid="stTextInputRootElement"]:focus-within,
+    [data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within,
+    [data-testid="stPasswordInput"] div[data-baseweb="base-input"]:focus-within,
     [data-testid="stNumberInput"] div[data-baseweb="input"]:focus-within,
-    [data-testid="stTextInput"] input:focus, [data-testid="stNumberInput"] input:focus,
-    [data-testid="stPasswordInput"] input:focus {
+    [data-testid="stTextArea"] textarea:focus,
+    [data-testid="stSelectbox"] div[data-baseweb="select"]:focus-within {
         border-color: #7663C7 !important;
         box-shadow: 0 0 0 2px rgba(118, 99, 199, 0.22) !important;
+    }
+    [data-testid="stTextInput"] input:focus,
+    [data-testid="stPasswordInput"] input:focus,
+    [data-testid="stNumberInput"] input:focus {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
     }
     [data-testid="stWidgetLabel"] label, [data-testid="stWidgetLabel"] p {
         font-size: 13.5px !important;
