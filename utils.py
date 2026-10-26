@@ -1,371 +1,286 @@
-"""
-utils.py
---------
-Helper utilities for the Student Performance Report System:
-- User authentication & role management (Teacher / Student)
-- Secure PBKDF2 password hashing & validation
-- Input validation with clear error messages
-- Automated personalized recommendations
-- Data file handling (loading, saving, updating student records)
-- Academic details submission & teacher approval workflow
-"""
-
 import os
 import re
-import hashlib
-import secrets
+import json
 import uuid
-from datetime import datetime
+import hashlib
+from datetime import datetime, date
+from pathlib import Path
+from typing import Dict, List, Tuple, Any, Optional
+
 import pandas as pd
-from typing import Tuple, List, Dict, Optional
-
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-# Prefer the bundled project's data directory when it exists; otherwise use
-# a conventional root-level data directory. This keeps records and accounts
-# beside the dataset already included in the ZIP/deployment.
-BUNDLED_PROJECT_DIR = os.path.join(PROJECT_ROOT, "student_performance_system")
-BUNDLED_DATA_DIR = os.path.join(BUNDLED_PROJECT_DIR, "data")
-DATA_DIR = BUNDLED_DATA_DIR if os.path.isdir(BUNDLED_DATA_DIR) else os.path.join(PROJECT_ROOT, "data")
-RECORDS_FILE = os.path.join(DATA_DIR, "student_records.csv")
-TRAINING_FILE = os.path.join(DATA_DIR, "student_data.csv")
-USERS_FILE = os.path.join(DATA_DIR, "users.csv")
-GOALS_FILE = os.path.join(DATA_DIR, "student_goals.csv")
-
-# Standard schema for student records
-RECORD_COLUMNS = [
-    "Student_ID", "Name", "Attendance_Percentage",
-    "Study_Hours_Per_Day", "Assignment_Marks",
-    "Exam_Marks", "Performance_Category",
-    "Submission_Status", "Teacher_Remarks",
-    "Submission_Date", "Student_Email", "Course_Branch"
-]
-
-def get_records_path() -> str:
-    """Ensure data directory exists and return student_records.csv path."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    return RECORDS_FILE
-
-def get_users_path() -> str:
-    """Ensure data directory exists and return users.csv path."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    return USERS_FILE
+import numpy as np
 
 
-def get_student_goals(roll_number: str) -> pd.DataFrame:
-    """Return goals belonging only to the requested student roll number."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    columns = ["goal_id", "roll_number", "title", "target_marks", "target_date", "status", "created_at"]
-    if not os.path.exists(GOALS_FILE):
-        pd.DataFrame(columns=columns).to_csv(GOALS_FILE, index=False)
-        return pd.DataFrame(columns=columns)
-    try:
-        goals = pd.read_csv(GOALS_FILE).fillna("")
-        for column in columns:
-            if column not in goals.columns:
-                goals[column] = ""
-        return goals[goals["roll_number"].astype(str).str.casefold() == str(roll_number).casefold()][columns].copy()
-    except (pd.errors.ParserError, OSError, ValueError):
-        return pd.DataFrame(columns=columns)
+# -----------------------------------------------------------------------------
+# Base Directories & Storage Paths
+# -----------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = BASE_DIR / "student_performance_system"
+DATA_DIR = PROJECT_DIR / "data" if (PROJECT_DIR / "data").exists() else BASE_DIR / "data"
+MODEL_DIR = PROJECT_DIR / "model" if (PROJECT_DIR / "model").exists() else BASE_DIR / "model"
+
+STUDENT_RECORDS_PATH = DATA_DIR / "student_records.csv"
+USERS_PATH = DATA_DIR / "users.csv"
+STUDENT_GOALS_PATH = DATA_DIR / "student_goals.csv"
+
+# Ensure data directory exists
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def add_student_goal(roll_number: str, title: str, target_marks: float, target_date: str = "") -> Tuple[bool, str]:
-    """Persist a new academic goal for one student."""
-    clean_title = str(title).strip()
-    if len(clean_title) < 3:
-        return False, "Please enter a goal title with at least 3 characters."
-    try:
-        target = float(target_marks)
-    except (TypeError, ValueError):
-        return False, "Target marks must be a number."
-    if not 1 <= target <= 100:
-        return False, "Target marks must be between 1 and 100."
-    os.makedirs(DATA_DIR, exist_ok=True)
-    columns = ["goal_id", "roll_number", "title", "target_marks", "target_date", "status", "created_at"]
-    if os.path.exists(GOALS_FILE):
-        try:
-            goals = pd.read_csv(GOALS_FILE).fillna("")
-        except (pd.errors.ParserError, OSError, ValueError):
-            goals = pd.DataFrame(columns=columns)
-    else:
-        goals = pd.DataFrame(columns=columns)
-    for column in columns:
-        if column not in goals.columns:
-            goals[column] = ""
-    new_goal = {
-        "goal_id": uuid.uuid4().hex,
-        "roll_number": str(roll_number),
-        "title": clean_title,
-        "target_marks": target,
-        "target_date": str(target_date or ""),
-        "status": "In Progress",
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    goals = pd.concat([goals[columns], pd.DataFrame([new_goal])], ignore_index=True)
-    goals.to_csv(GOALS_FILE, index=False)
-    return True, "Your learning goal has been saved."
+# -----------------------------------------------------------------------------
+# Security & Hashing Helpers
+# -----------------------------------------------------------------------------
+def hash_password(password: str) -> str:
+    """Hashes a password using SHA-256."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-def update_student_goal_status(roll_number: str, goal_id: str, status: str) -> Tuple[bool, str]:
-    """Update a goal only when it belongs to the authenticated student."""
-    if status not in {"In Progress", "Completed"}:
-        return False, "Invalid goal status."
-    if not os.path.exists(GOALS_FILE):
-        return False, "No saved goals were found."
-    try:
-        goals = pd.read_csv(GOALS_FILE).fillna("")
-        required = {"goal_id", "roll_number", "status"}
-        if not required.issubset(goals.columns):
-            return False, "The goals file has an unexpected format."
-        owned = (
-            goals["goal_id"].astype(str).eq(str(goal_id))
-            & goals["roll_number"].astype(str).str.casefold().eq(str(roll_number).casefold())
-        )
-        if not owned.any():
-            return False, "That goal could not be found in your account."
-        goals.loc[owned, "status"] = status
-        goals.to_csv(GOALS_FILE, index=False)
-        return True, "Goal status updated."
-    except (pd.errors.ParserError, OSError, ValueError):
-        return False, "Unable to update the goal right now."
+# -----------------------------------------------------------------------------
+# Student Records Management
+# -----------------------------------------------------------------------------
+def get_records_path() -> Path:
+    """Returns the resolved path to student_records.csv."""
+    return STUDENT_RECORDS_PATH
 
-# ---------------------------------------------------------
-# Password Hashing & Security
-# ---------------------------------------------------------
-def hash_password(password: str, salt: str = None) -> str:
-    """
-    Secure password hashing using standard library PBKDF2 with SHA-256 and 100,000 iterations.
-    Never stores plain text passwords.
-    """
-    if salt is None:
-        salt = secrets.token_hex(16)
-    key = hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt.encode('utf-8'),
-        100000
-    )
-    return f"{salt}${key.hex()}"
 
-def verify_password(stored_hash: str, password: str) -> bool:
-    """Verifies a plain password against the stored salt$hash string using constant-time comparison."""
-    try:
-        if not stored_hash or "$" not in stored_hash:
-            return False
-        salt, hex_key = stored_hash.split('$', 1)
-        new_key = hashlib.pbkdf2_hmac(
-            'sha256',
-            password.encode('utf-8'),
-            salt.encode('utf-8'),
-            100000
-        )
-        return secrets.compare_digest(new_key.hex(), hex_key)
-    except Exception:
-        return False
-
-# ---------------------------------------------------------
-# User Authentication Storage & Initialization
-# ---------------------------------------------------------
-def initialize_users():
-    """
-    Initializes users.csv. If users file doesn't exist, seeds it with
-    an authorized senior faculty account.
-    Guarantees backward-compatible schema with department, designation, phone, and is_approver.
-    """
-    users_path = get_users_path()
-    expected = [
-        "user_id", "name", "email", "roll_number", "course_branch",
-        "password_hash", "role", "created_at", "approval_status",
-        "department", "designation", "phone", "is_approver"
-    ]
-    if not os.path.exists(users_path):
-        df_users = pd.DataFrame(columns=expected)
-        default_pwd = hash_password("teacher123")
-        df_users.loc[0] = [
-            "TCH101", "Prof. Sharma", "teacher@school.edu", "TEACHER01",
-            "Faculty of Computer Science & IT", default_pwd, "teacher",
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "approved",
-            "Computer Science & IT", "Senior Professor & Department Chair", "", "True"
+def initialize_records():
+    """Initializes student_records.csv with default structure if missing."""
+    if not STUDENT_RECORDS_PATH.exists() or os.stat(STUDENT_RECORDS_PATH).st_size == 0:
+        columns = [
+            "record_id",
+            "roll_number",
+            "name",
+            "course",
+            "study_hours",
+            "attendance",
+            "previous_score",
+            "predicted_score",
+            "actual_score",
+            "performance_category",
+            "status",
+            "teacher_remarks",
+            "reviewed_by",
+            "submitted_at",
+            "reviewed_at"
         ]
-        df_users.to_csv(users_path, index=False)
-    else:
-        # Guarantee all expected columns exist
-        try:
-            df = pd.read_csv(users_path, dtype=str).fillna("")
-            missing = [c for c in expected if c not in df.columns]
-            if missing:
-                for c in missing:
-                    df[c] = ""
-            for c in expected:
-                if c in df.columns:
-                    df[c] = df[c].astype(str)
+        df = pd.DataFrame(columns=columns)
+        df.to_csv(STUDENT_RECORDS_PATH, index=False)
 
-            # Ensure approval_status is populated
-            blank_status = df["approval_status"].astype(str).str.strip().eq("") | df["approval_status"].astype(str).str.lower().eq("nan")
-            df.loc[blank_status, "approval_status"] = "approved"
 
-            # Ensure is_approver column is string representation
-            admin_mask = (df["email"].astype(str).str.strip().str.lower() == "teacher@school.edu") | (df["user_id"].astype(str).str.strip() == "TCH101")
-            df.loc[admin_mask, "is_approver"] = "True"
-            non_admin_mask = ~admin_mask & (df["is_approver"].str.strip().isin(["", "nan", "None"]))
-            df.loc[non_admin_mask, "is_approver"] = "False"
-
-            # Populate default department & designation for Prof. Sharma if empty
-            if admin_mask.any():
-                dept_val = str(df.loc[admin_mask, "department"].values[0]).strip()
-                if not dept_val or dept_val.lower() == "nan":
-                    df.loc[admin_mask, "department"] = "Computer Science & IT"
-                desig_val = str(df.loc[admin_mask, "designation"].values[0]).strip()
-                if not desig_val or desig_val.lower() == "nan":
-                    df.loc[admin_mask, "designation"] = "Senior Professor & Department Chair"
-
-            df.to_csv(users_path, index=False)
-        except Exception as e:
-            print(f"Error checking users file: {e}")
-
-def load_users() -> pd.DataFrame:
-    """Load users database."""
-    initialize_users()
-    users_path = get_users_path()
+def load_student_records() -> pd.DataFrame:
+    """Loads student records into a DataFrame."""
+    initialize_records()
     try:
-        return pd.read_csv(users_path, dtype=str).fillna("")
-    except Exception as e:
-        print(f"Error loading users: {e}")
+        df = pd.read_csv(STUDENT_RECORDS_PATH)
+        return df
+    except Exception:
         return pd.DataFrame()
 
-def validate_student_registration(
-    name: str,
-    roll_number: str,
-    email: str,
-    course_branch: str,
-    password: str,
-    confirm_password: str
-) -> Tuple[bool, List[str]]:
-    """Validates registration fields with clear, beginner-friendly error messages."""
+
+def save_student_record(record_dict: Dict[str, Any]) -> bool:
+    """Appends or updates a student academic record."""
+    initialize_records()
+    try:
+        df = pd.read_csv(STUDENT_RECORDS_PATH)
+        if "record_id" not in record_dict or not record_dict["record_id"]:
+            record_dict["record_id"] = uuid.uuid4().hex
+        if "submitted_at" not in record_dict or not record_dict["submitted_at"]:
+            record_dict["submitted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        rec_df = pd.DataFrame([record_dict])
+        df = pd.concat([df, rec_df], ignore_index=True)
+        df.to_csv(STUDENT_RECORDS_PATH, index=False)
+        return True
+    except Exception as e:
+        print(f"Error saving student record: {e}")
+        return False
+
+
+def validate_student_inputs(study_hours: float, attendance: float, previous_score: float) -> Tuple[bool, List[str]]:
+    """Validates student academic inputs."""
     errors = []
+    if study_hours is None or study_hours < 0 or study_hours > 24:
+        errors.append("Study hours must be between 0 and 24 hours per day.")
+    if attendance is None or attendance < 0 or attendance > 100:
+        errors.append("Attendance must be between 0% and 100%.")
+    if previous_score is None or previous_score < 0 or previous_score > 100:
+        errors.append("Previous score must be between 0 and 100.")
+    return len(errors) == 0, errors
 
-    # Name validation
-    cleaned_name = name.strip()
-    if not cleaned_name:
-        errors.append("Student Name cannot be empty.")
-    elif len(cleaned_name) < 2:
-        errors.append("Student Name must be at least 2 characters long.")
-    elif not re.match(r"^[a-zA-Z\s\.]+$", cleaned_name):
-        errors.append("Student Name must contain only alphabets, spaces, and periods.")
 
-    # Roll Number validation
-    cleaned_roll = roll_number.strip().upper()
-    if not cleaned_roll:
-        errors.append("Roll Number cannot be empty.")
-    elif not re.match(r"^[A-Z0-9_-]{3,20}$", cleaned_roll):
-        errors.append("Roll Number must be 3-20 alphanumeric characters (e.g., STU2024_01, 22CS101).")
+# -----------------------------------------------------------------------------
+# User Account Management & Authentication
+# -----------------------------------------------------------------------------
+def initialize_users():
+    """Initializes users.csv if missing."""
+    if not USERS_PATH.exists() or os.stat(USERS_PATH).st_size == 0:
+        columns = [
+            "user_id",
+            "email",
+            "password_hash",
+            "role",
+            "name",
+            "roll_number",
+            "course",
+            "department",
+            "teacher_id",
+            "is_approved",
+            "created_at"
+        ]
+        df = pd.DataFrame(columns=columns)
+        df.to_csv(USERS_PATH, index=False)
 
-    # Email validation
-    cleaned_email = email.strip().lower()
-    if not cleaned_email:
-        errors.append("Email address cannot be empty.")
-    elif not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", cleaned_email):
-        errors.append("Please provide a valid email address (e.g., student@college.edu).")
 
-    # Course / Branch validation
-    cleaned_course = course_branch.strip()
-    if not cleaned_course:
-        errors.append("Course / Branch cannot be empty.")
+def load_users() -> pd.DataFrame:
+    """Loads users.csv into a DataFrame."""
+    initialize_users()
+    try:
+        return pd.read_csv(USERS_PATH, dtype=str).fillna("")
+    except Exception:
+        return pd.DataFrame()
 
-    # Password validation
-    if not password:
-        errors.append("Password cannot be empty.")
-    elif len(password) < 6:
-        errors.append("Password must be at least 6 characters long.")
-    elif password != confirm_password:
-        errors.append("Passwords do not match.")
-
-    # Check for uniqueness against existing users
-    df_users = load_users()
-    if not df_users.empty:
-        existing_rolls = df_users["roll_number"].astype(str).str.strip().str.upper().tolist()
-        if cleaned_roll in existing_rolls:
-            errors.append(f"Roll Number '{cleaned_roll}' is already registered. Please login or use a unique Roll Number.")
-
-        existing_emails = df_users["email"].astype(str).str.strip().str.lower().tolist()
-        if cleaned_email in existing_emails:
-            errors.append(f"Email '{cleaned_email}' is already in use by an existing account.")
-
-    return (len(errors) == 0, errors)
 
 def register_student(
     name: str,
-    roll_number: str,
     email: str,
-    course_branch: str,
-    password: str
+    password: str,
+    roll_number: str,
+    course: str
 ) -> Tuple[bool, str]:
-    """Registers a new student user with hashed password and unique roll number & email."""
-    users_path = get_users_path()
-    try:
-        df_users = load_users()
-        cleaned_roll = roll_number.strip().upper()
-        cleaned_email = email.strip().lower()
-        cleaned_name = name.strip()
-        cleaned_course = course_branch.strip()
+    """Registers a student account."""
+    initialize_users()
+    df = load_users()
+    clean_email = email.strip().lower()
+    clean_roll = roll_number.strip().upper()
 
-        # Generate unique user_id
-        user_id = f"USR_{cleaned_roll}"
-        pwd_hash = hash_password(password)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not df.empty:
+        if (df["email"].str.lower() == clean_email).any():
+            return False, "An account with this email address already exists."
+        if (df["roll_number"].str.upper() == clean_roll).any():
+            return False, "An account with this Roll Number already exists."
 
-        new_row = {
-            "user_id": user_id,
-            "name": cleaned_name,
-            "email": cleaned_email,
-            "roll_number": cleaned_roll,
-            "course_branch": cleaned_course,
-            "password_hash": pwd_hash,
-            "role": "student",
-            "created_at": now_str
-        }
+    new_user = {
+        "user_id": uuid.uuid4().hex,
+        "email": clean_email,
+        "password_hash": hash_password(password),
+        "role": "student",
+        "name": name.strip(),
+        "roll_number": clean_roll,
+        "course": course.strip(),
+        "department": "",
+        "teacher_id": "",
+        "is_approved": "True",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-        df_updated = pd.concat([df_users, pd.DataFrame([new_row])], ignore_index=True)
-        df_updated.to_csv(users_path, index=False)
-        return True, "Registration successful! You can now log in."
-    except Exception as e:
-        return False, f"Registration failed due to a server error: {str(e)}"
+    df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
+    df.to_csv(USERS_PATH, index=False)
+    return True, "Account registered successfully! You can now log in."
+
+
+def authenticate_user(identifier: str, password: str, role: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    """
+    Authenticates a user by email or roll_number (for students) / employee_id (for teachers).
+    """
+    initialize_users()
+    df = load_users()
+    if df.empty:
+        return False, None, "No accounts found in the system. Please register first."
+
+    clean_id = identifier.strip()
+    pw_hash = hash_password(password)
+
+    matched = pd.DataFrame()
+    if role == "student":
+        matched = df[
+            (df["role"] == "student") &
+            ((df["email"].str.lower() == clean_id.lower()) | (df["roll_number"].str.upper() == clean_id.upper()))
+        ]
+    elif role == "teacher":
+        matched = df[
+            (df["role"] == "teacher") &
+            ((df["email"].str.lower() == clean_id.lower()) | (df["teacher_id"].str.upper() == clean_id.upper()))
+        ]
+
+    if matched.empty:
+        return False, None, f"No {role} account found matching '{clean_id}'."
+
+    user_row = matched.iloc[0]
+    if user_row["password_hash"] != pw_hash:
+        return False, None, "Incorrect password. Please try again."
+
+    if role == "teacher" and str(user_row.get("is_approved", "")).lower() not in ["true", "1"]:
+        return False, None, "Your teacher account is pending administrative approval."
+
+    user_dict = user_row.to_dict()
+    return True, user_dict, "Login successful!"
+
+
+def update_student_profile(user_id: str, name: str, course: str) -> Tuple[bool, str]:
+    """Updates student profile details."""
+    initialize_users()
+    df = load_users()
+    if df.empty or (df["user_id"] != user_id).all():
+        return False, "User not found."
+
+    df.loc[df["user_id"] == user_id, "name"] = name.strip()
+    df.loc[df["user_id"] == user_id, "course"] = course.strip()
+    df.to_csv(USERS_PATH, index=False)
+    return True, "Profile updated successfully!"
+
+
+def update_teacher_profile(user_id: str, name: str, department: str) -> Tuple[bool, str]:
+    """Updates teacher profile details."""
+    initialize_users()
+    df = load_users()
+    if df.empty or (df["user_id"] != user_id).all():
+        return False, "User not found."
+
+    df.loc[df["user_id"] == user_id, "name"] = name.strip()
+    df.loc[df["user_id"] == user_id, "department"] = department.strip()
+    df.to_csv(USERS_PATH, index=False)
+    return True, "Profile updated successfully!"
+
+
+def validate_student_registration(name: str, email: str, roll_number: str, course: str, password: str, confirm_password: str) -> Tuple[bool, List[str]]:
+    """Validates registration fields for students."""
+    return validate_account_registration("student", name, email, password, confirm_password, roll_number=roll_number, course=course)
+
 
 def validate_account_registration(
+    role: str,
     name: str,
     email: str,
-    course_branch: str = "",
-    password: str = "",
-    confirm_password: str = "",
-    role: str = "student",
+    password: str,
+    confirm_password: str,
     roll_number: str = "",
-    department: str = "",
-    designation: str = "",
-    teacher_id: str = ""
+    course: str = "",
+    teacher_id: str = "",
+    department: str = ""
 ) -> Tuple[bool, List[str]]:
-    """Validate student or teacher registration without trusting the selected role."""
+    """Validates account registration inputs."""
     errors = []
     cleaned_name = name.strip()
     cleaned_email = email.strip().lower()
-    cleaned_role = role.strip().lower()
+    cleaned_roll = roll_number.strip().upper()
+    cleaned_course = course.strip()
+    cleaned_teacher_id = teacher_id.strip().upper()
+    cleaned_dept = department.strip()
 
-    if not cleaned_name:
-        errors.append("Full Name is required.")
-    elif len(cleaned_name) < 2:
+    if not cleaned_name or len(cleaned_name) < 2:
         errors.append("Full Name must be at least 2 characters long.")
-    elif not re.match(r"^[a-zA-Z\s.]+$", cleaned_name):
-        errors.append("Full Name must contain letters, spaces, and periods only.")
 
-    if not cleaned_email:
-        errors.append("College Email is required.")
-    elif not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]+$", cleaned_email):
-        errors.append("Please enter a valid email address.")
+    email_pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    if not cleaned_email or not re.match(email_pattern, cleaned_email):
+        errors.append("Please provide a valid email address.")
 
-    if cleaned_role not in {"student", "teacher"}:
-        errors.append("Please select Student or Teacher as the account role.")
+    if not password or len(password) < 6:
+        errors.append("Password must be at least 6 characters long.")
 
-    if cleaned_role == "student":
-        cleaned_roll = roll_number.strip().upper()
-        cleaned_course = course_branch.strip()
+    if password != confirm_password:
+        errors.append("Passwords do not match.")
+
+    if role == "student":
         if not cleaned_roll:
             errors.append("Roll Number is required for student accounts.")
         elif not re.match(r"^[A-Z0-9_-]{3,20}$", cleaned_roll):
@@ -373,11 +288,7 @@ def validate_account_registration(
         if not cleaned_course:
             errors.append("Course / Branch is required.")
 
-    elif cleaned_role == "teacher":
-        cleaned_teacher_id = (teacher_id or roll_number or "").strip().upper()
-        cleaned_dept = (department or course_branch or "").strip()
-        cleaned_desig = designation.strip()
-
+    elif role == "teacher":
         if not cleaned_teacher_id:
             errors.append("Teacher ID / Employee ID is required.")
         elif not re.match(r"^[A-Z0-9_-]{3,20}$", cleaned_teacher_id):
@@ -385,704 +296,344 @@ def validate_account_registration(
 
         if not cleaned_dept:
             errors.append("Department is required.")
-        elif len(cleaned_dept) < 2:
-            errors.append("Department must be at least 2 characters long.")
-
-        if not cleaned_desig:
-            errors.append("Designation is required (e.g., Assistant Professor, Professor).")
-        elif len(cleaned_desig) < 2:
-            errors.append("Designation must be at least 2 characters long.")
-
-    if not password:
-        errors.append("Password is required.")
-    elif len(password) < 6:
-        errors.append("Password must be at least 6 characters long.")
-    if password != confirm_password:
-        errors.append("Passwords do not match.")
-
-    df_users = load_users()
-    if not df_users.empty:
-        existing_emails = df_users["email"].astype(str).str.strip().str.lower().tolist()
-        if cleaned_email in existing_emails:
-            errors.append("This email is already registered. Please sign in or use another email.")
-        if cleaned_role == "student":
-            cleaned_roll = roll_number.strip().upper()
-            existing_rolls = df_users["roll_number"].astype(str).str.strip().str.upper().tolist()
-            if cleaned_roll in existing_rolls:
-                errors.append(f"Roll Number '{cleaned_roll}' is already registered.")
-        elif cleaned_role == "teacher":
-            cleaned_teacher_id = (teacher_id or roll_number or "").strip().upper()
-            teacher_rolls = df_users.loc[df_users["role"].astype(str).str.lower() == "teacher", "roll_number"].astype(str).str.strip().str.upper().tolist()
-            user_ids = df_users["user_id"].astype(str).str.strip().str.upper().tolist()
-            if (cleaned_teacher_id in teacher_rolls) or (cleaned_teacher_id in user_ids) or (f"TCH_{cleaned_teacher_id}" in user_ids):
-                errors.append(f"Teacher ID / Employee ID '{cleaned_teacher_id}' is already registered. Please use your assigned ID.")
 
     return len(errors) == 0, errors
 
 
 def register_account(
+    role: str,
     name: str,
     email: str,
-    course_branch: str = "",
-    password: str = "",
-    role: str = "student",
+    password: str,
     roll_number: str = "",
-    department: str = "",
-    designation: str = "",
-    teacher_id: str = ""
+    course: str = "",
+    teacher_id: str = "",
+    department: str = ""
 ) -> Tuple[bool, str]:
-    """Create a student account (approved by default) or a teacher account (pending authorized approver approval)."""
-    users_path = get_users_path()
-    try:
-        df_users = load_users()
-        cleaned_role = role.strip().lower()
-        cleaned_email = email.strip().lower()
-        cleaned_name = name.strip()
+    """Registers a new student or teacher account."""
+    initialize_users()
+    df = load_users()
+    clean_email = email.strip().lower()
 
-        if cleaned_role not in {"student", "teacher"}:
-            return False, "Invalid account role selected."
-        if not df_users.empty and (df_users["email"].astype(str).str.strip().str.lower() == cleaned_email).any():
-            return False, "This email is already registered. Please sign in or use another email."
+    if not df.empty and (df["email"].str.lower() == clean_email).any():
+        return False, "An account with this email address already exists."
 
-        if cleaned_role == "student":
-            cleaned_roll = roll_number.strip().upper()
-            cleaned_course = course_branch.strip()
-            if not cleaned_roll:
-                return False, "Roll Number is required for student accounts."
-            if not df_users.empty and (df_users["roll_number"].astype(str).str.strip().str.upper() == cleaned_roll).any():
-                return False, f"Roll Number '{cleaned_roll}' is already registered."
-            user_id = f"USR_{cleaned_roll}"
-            approval_status = "approved"
-            dept_val = ""
-            desig_val = ""
-        else:
-            cleaned_teacher_id = (teacher_id or roll_number or "").strip().upper()
-            cleaned_dept = (department or course_branch or "").strip()
-            cleaned_desig = designation.strip()
-            if not cleaned_teacher_id:
-                return False, "Teacher ID / Employee ID is required."
-            teacher_rolls = df_users.loc[df_users["role"].astype(str).str.lower() == "teacher", "roll_number"].astype(str).str.strip().str.upper().tolist() if not df_users.empty else []
-            user_ids = df_users["user_id"].astype(str).str.strip().str.upper().tolist() if not df_users.empty else []
-            if (cleaned_teacher_id in teacher_rolls) or (cleaned_teacher_id in user_ids) or (f"TCH_{cleaned_teacher_id}" in user_ids):
-                return False, f"Teacher ID / Employee ID '{cleaned_teacher_id}' is already registered."
+    if role == "student":
+        clean_roll = roll_number.strip().upper()
+        if not df.empty and (df["roll_number"].str.upper() == clean_roll).any():
+            return False, "An account with this Roll Number already exists."
+        is_approved = "True"
+    else:
+        clean_tid = teacher_id.strip().upper()
+        if not df.empty and (df["teacher_id"].str.upper() == clean_tid).any():
+            return False, "An account with this Teacher ID already exists."
+        is_approved = "False"
 
-            user_id = cleaned_teacher_id if cleaned_teacher_id.startswith("TCH_") else f"TCH_{cleaned_teacher_id}"
-            cleaned_roll = cleaned_teacher_id
-            cleaned_course = f"{cleaned_dept} ({cleaned_desig})" if cleaned_desig else cleaned_dept
-            dept_val = cleaned_dept
-            desig_val = cleaned_desig
-            approval_status = "pending"
+    new_user = {
+        "user_id": uuid.uuid4().hex,
+        "email": clean_email,
+        "password_hash": hash_password(password),
+        "role": role,
+        "name": name.strip(),
+        "roll_number": roll_number.strip().upper() if role == "student" else "",
+        "course": course.strip() if role == "student" else "",
+        "department": department.strip() if role == "teacher" else "",
+        "teacher_id": teacher_id.strip().upper() if role == "teacher" else "",
+        "is_approved": is_approved,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-        new_row = {
-            "user_id": user_id,
-            "name": cleaned_name,
-            "email": cleaned_email,
-            "roll_number": cleaned_roll,
-            "course_branch": cleaned_course,
-            "password_hash": hash_password(password),
-            "role": cleaned_role,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "approval_status": approval_status,
-            "department": dept_val,
-            "designation": desig_val,
-            "phone": "",
-            "is_approver": "False"
-        }
-        df_updated = pd.concat([df_users, pd.DataFrame([new_row])], ignore_index=True)
-        df_updated.to_csv(users_path, index=False)
-        if cleaned_role == "teacher":
-            return True, "Your teacher account has been submitted for approval. You can sign in after an authorized approver approves your account."
-        return True, "Student account created successfully. You can now sign in."
-    except Exception as e:
-        return False, f"Registration failed due to a server error: {str(e)}"
+    df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
+    df.to_csv(USERS_PATH, index=False)
+
+    if role == "teacher":
+        return True, "Teacher registration submitted! Your account is pending administrator approval."
+    return True, "Registration successful! You may now sign in."
 
 
 def get_pending_teacher_accounts() -> pd.DataFrame:
-    """Return teacher accounts awaiting approval."""
-    df_users = load_users()
-    cols = ["user_id", "name", "email", "roll_number", "department", "designation", "course_branch", "created_at", "approval_status"]
-    if df_users.empty or "approval_status" not in df_users.columns:
-        return pd.DataFrame(columns=cols)
-    for c in cols:
-        if c not in df_users.columns:
-            df_users[c] = ""
-    mask = (df_users["role"].astype(str).str.lower() == "teacher") & (df_users["approval_status"].astype(str).str.lower() == "pending")
-    return df_users.loc[mask, cols].copy()
+    """Returns all teacher accounts awaiting administrator approval."""
+    df = load_users()
+    if df.empty:
+        return pd.DataFrame()
+    return df[(df["role"] == "teacher") & (df["is_approved"].str.lower() != "true")]
 
 
-def set_teacher_approval(email: str, approved: bool, approver_user_id: Optional[str] = None) -> Tuple[bool, str]:
-    """
-    Approve or reject a pending teacher account.
-    Enforces authorization check: only an authorized approver can approve/reject accounts.
-    """
-    try:
-        users_path = get_users_path()
-        df_users = load_users()
+def set_teacher_approval(user_id: str, approve: bool) -> Tuple[bool, str]:
+    """Approves or rejects a teacher account."""
+    initialize_users()
+    df = load_users()
+    if df.empty or (df["user_id"] != user_id).all():
+        return False, "User not found."
 
-        # Authorization Guard
-        if approver_user_id is not None:
-            approver_mask = (df_users["user_id"].astype(str) == str(approver_user_id)) & (df_users["role"].astype(str).str.lower() == "teacher")
-            if not approver_mask.any():
-                return False, "Unauthorized: Approver account not found."
-            approver_row = df_users.loc[approver_mask].iloc[0]
-            is_approver = str(approver_row.get("is_approver", "")).strip().lower() in ["true", "1", "yes"]
-            status = str(approver_row.get("approval_status", "")).strip().lower()
-            if not is_approver or status != "approved":
-                return False, "Unauthorized: You do not have permission to approve or reject accounts."
-
-        mask = (df_users["email"].astype(str).str.lower() == email.strip().lower()) & (df_users["role"].astype(str).str.lower() == "teacher")
-        if not mask.any():
-            return False, "Teacher account was not found."
-
-        new_status = "approved" if approved else "rejected"
-        df_users.loc[mask, "approval_status"] = new_status
-        df_users.to_csv(users_path, index=False)
-        return True, f"Teacher account {new_status} successfully."
-    except Exception as e:
-        return False, f"Unable to update teacher approval: {e}"
-
-
-def authenticate_user(
-    identifier: str,
-    password: str,
-    expected_role: Optional[str] = None
-) -> Tuple[bool, Optional[Dict], str]:
-    """
-    Authenticates a user by email or roll number/teacher ID.
-    Returns (True, user_dict, message) on success, or (False, None, error_message).
-    """
-    df_users = load_users()
-    if df_users.empty:
-        return False, None, "No user accounts registered in system."
-
-    cleaned_ident = identifier.strip().lower()
-
-    # Search by email or roll_number (case-insensitive)
-    matches = df_users[
-        (df_users["email"].astype(str).str.strip().str.lower() == cleaned_ident) |
-        (df_users["roll_number"].astype(str).str.strip().str.lower() == cleaned_ident)
-    ]
-
-    if matches.empty:
-        return False, None, "Account not found. Please check your Roll Number or Email."
-
-    user_row = matches.iloc[0]
-
-    # Verify password
-    if not verify_password(str(user_row["password_hash"]), password):
-        return False, None, "Incorrect password. Please try again."
-
-    user_dict = {
-        "user_id": str(user_row.get("user_id", "")),
-        "name": str(user_row.get("name", "")),
-        "email": str(user_row.get("email", "")),
-        "roll_number": str(user_row.get("roll_number", "")),
-        "course_branch": str(user_row.get("course_branch", "")),
-        "role": str(user_row.get("role", "student")),
-        "created_at": str(user_row.get("created_at", "")),
-        "approval_status": str(user_row.get("approval_status", "approved") or "approved").lower(),
-        "department": str(user_row.get("department", "") if pd.notna(user_row.get("department")) else ""),
-        "designation": str(user_row.get("designation", "") if pd.notna(user_row.get("designation")) else ""),
-        "phone": str(user_row.get("phone", "") if pd.notna(user_row.get("phone")) else ""),
-        "is_approver": bool(str(user_row.get("is_approver", "")).strip().lower() in ["true", "1", "yes"])
-    }
-
-    # Strict server-side access guard for teachers
-    if user_dict["role"].lower() == "teacher" and user_dict["approval_status"] != "approved":
-        if user_dict["approval_status"] == "pending":
-            return False, None, "Your teacher account is awaiting approval by an authorized approver. You can sign in once approved."
-        return False, None, "This teacher account request was not approved. Please contact the administrator."
-
-    # Role validation if specified
-    if expected_role and user_dict["role"].lower() != expected_role.lower():
-        return False, None, f"Access denied. Account role is '{user_dict['role']}', not '{expected_role}'."
-
-    return True, user_dict, "Login successful."
-
-
-def update_teacher_profile(
-    user_id: str,
-    name: str,
-    department: str,
-    designation: str,
-    phone: str = ""
-) -> Tuple[bool, str]:
-    """
-    Updates permitted personal profile fields for an authenticated teacher.
-    Email and Teacher ID remain protected and read-only.
-    Role and approval_status cannot be modified.
-    """
-    users_path = get_users_path()
-    try:
-        df_users = load_users()
-        for col in ["name", "department", "designation", "phone", "course_branch"]:
-            if col not in df_users.columns:
-                df_users[col] = ""
-            df_users[col] = df_users[col].astype(str)
-
-        mask = (df_users["user_id"].astype(str) == str(user_id)) & (df_users["role"].astype(str).str.lower() == "teacher")
-        if not mask.any():
-            return False, "Teacher account record was not found."
-
-        cleaned_name = name.strip()
-        cleaned_dept = department.strip()
-        cleaned_desig = designation.strip()
-        cleaned_phone = phone.strip()
-
-        if not cleaned_name or len(cleaned_name) < 2:
-            return False, "Full Name must be at least 2 characters long."
-        if not re.match(r"^[a-zA-Z\s.]+$", cleaned_name):
-            return False, "Full Name must contain letters, spaces, and periods only."
-        if not cleaned_dept or len(cleaned_dept) < 2:
-            return False, "Department is required."
-        if not cleaned_desig or len(cleaned_desig) < 2:
-            return False, "Designation is required."
-        if cleaned_phone and not re.match(r"^[0-9+\-\s()]{7,20}$", cleaned_phone):
-            return False, "Please enter a valid phone number (7-20 digits/symbols)."
-
-        df_users.loc[mask, "name"] = cleaned_name
-        df_users.loc[mask, "department"] = cleaned_dept
-        df_users.loc[mask, "designation"] = cleaned_desig
-        df_users.loc[mask, "course_branch"] = f"{cleaned_dept} ({cleaned_desig})"
-        if "phone" in df_users.columns:
-            df_users.loc[mask, "phone"] = cleaned_phone
-
-        df_users.to_csv(users_path, index=False)
-        return True, "Profile updated successfully!"
-    except Exception as e:
-        return False, f"Failed to update profile: {e}"
-
-def update_student_profile(
-    roll_number: str,
-    name: str,
-    email: str,
-    course_branch: str
-) -> Tuple[bool, str]:
-    """Updates permitted profile information for a student."""
-    users_path = get_users_path()
-    try:
-        df_users = load_users()
-        cleaned_roll = roll_number.strip().upper()
-        cleaned_email = email.strip().lower()
-        cleaned_name = name.strip()
-        cleaned_course = course_branch.strip()
-
-        # Check email uniqueness against other users
-        other_users = df_users[df_users["roll_number"].astype(str).str.strip().str.upper() != cleaned_roll]
-        if not other_users.empty:
-            if cleaned_email in other_users["email"].astype(str).str.strip().str.lower().tolist():
-                return False, f"Email '{cleaned_email}' is already taken by another account."
-
-        idx_matches = df_users.index[df_users["roll_number"].astype(str).str.strip().str.upper() == cleaned_roll].tolist()
-        if not idx_matches:
-            return False, f"Student profile for '{cleaned_roll}' not found."
-
-        idx = idx_matches[0]
-        df_users.at[idx, "name"] = cleaned_name
-        df_users.at[idx, "email"] = cleaned_email
-        df_users.at[idx, "course_branch"] = cleaned_course
-        df_users.to_csv(users_path, index=False)
-
-        # Also synchronize student name and email in student_records.csv if record exists
-        df_records = load_student_records()
-        if not df_records.empty:
-            r_idx_matches = df_records.index[df_records["Student_ID"].astype(str).str.strip().str.upper() == cleaned_roll].tolist()
-            if r_idx_matches:
-                r_idx = r_idx_matches[0]
-                df_records.at[r_idx, "Name"] = cleaned_name
-                df_records.at[r_idx, "Student_Email"] = cleaned_email
-                df_records.at[r_idx, "Course_Branch"] = cleaned_course
-                df_records.to_csv(get_records_path(), index=False)
-
-        return True, "Profile details successfully updated!"
-    except Exception as e:
-        return False, f"Failed to update profile: {str(e)}"
-
-# ---------------------------------------------------------
-# Student Records CSV Handling (Backward Compatible)
-# ---------------------------------------------------------
-def initialize_records():
-    """
-    Initializes student_records.csv. If records don't exist yet,
-    seeds with a subset of the training dataset. Ensures all 12 schema columns exist.
-    """
-    records_path = get_records_path()
-    if not os.path.exists(records_path):
-        if os.path.exists(TRAINING_FILE):
-            df_train = pd.read_csv(TRAINING_FILE)
-            df_seed = df_train.head(35).copy()
-            # Add missing schema columns with sensible defaults
-            df_seed["Submission_Status"] = "Approved"
-            df_seed["Teacher_Remarks"] = ""
-            df_seed["Submission_Date"] = datetime.now().strftime("%Y-%m-%d")
-            df_seed["Student_Email"] = ""
-            df_seed["Course_Branch"] = "B.Tech CSE"
-            df_seed.to_csv(records_path, index=False)
-        else:
-            pd.DataFrame(columns=RECORD_COLUMNS).to_csv(records_path, index=False)
+    if approve:
+        df.loc[df["user_id"] == user_id, "is_approved"] = "True"
+        msg = "Teacher account approved."
     else:
-        # Ensure existing file has all columns
-        try:
-            df = pd.read_csv(records_path)
-            modified = False
-            defaults = {
-                "Submission_Status": "Approved",
-                "Teacher_Remarks": "",
-                "Submission_Date": datetime.now().strftime("%Y-%m-%d"),
-                "Student_Email": "",
-                "Course_Branch": "B.Tech CSE"
-            }
-            for col, def_val in defaults.items():
-                if col not in df.columns:
-                    df[col] = def_val
-                    modified = True
-            if modified:
-                df.to_csv(records_path, index=False)
-        except Exception as e:
-            print(f"Error checking records schema: {e}")
+        df = df[df["user_id"] != user_id]
+        msg = "Teacher account rejected and removed."
 
-def load_student_records() -> pd.DataFrame:
-    """
-    Load current student records from CSV.
-    Guarantees all expected columns exist, filling defaults for legacy records.
-    """
-    initialize_records()
-    records_path = get_records_path()
-    try:
-        df = pd.read_csv(records_path)
-        defaults = {
-            "Submission_Status": "Approved",
-            "Teacher_Remarks": "",
-            "Submission_Date": "",
-            "Student_Email": "",
-            "Course_Branch": ""
-        }
-        for col, def_val in defaults.items():
-            if col not in df.columns:
-                df[col] = def_val
-            else:
-                df[col] = df[col].fillna(def_val)
-        return df
-    except Exception as e:
-        print(f"Error loading records: {e}")
-        return pd.DataFrame(columns=RECORD_COLUMNS)
+    df.to_csv(USERS_PATH, index=False)
+    return True, msg
 
-def save_student_record(record: dict) -> Tuple[bool, str]:
-    """Append or save a student record directly from teacher entry."""
-    records_path = get_records_path()
-    try:
-        df = load_student_records()
-        # Ensure default metadata fields are set
-        if "Submission_Status" not in record:
-            record["Submission_Status"] = "Approved"
-        if "Teacher_Remarks" not in record:
-            record["Teacher_Remarks"] = "Added directly by Teacher"
-        if "Submission_Date" not in record:
-            record["Submission_Date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if "Student_Email" not in record:
-            record["Student_Email"] = ""
-        if "Course_Branch" not in record:
-            record["Course_Branch"] = "B.Tech"
 
-        new_df = pd.DataFrame([record])
-        df_combined = pd.concat([df, new_df], ignore_index=True)
-        df_combined.to_csv(records_path, index=False)
-        return True, "Student record successfully saved!"
-    except Exception as e:
-        return False, f"Failed to save record: {str(e)}"
+# -----------------------------------------------------------------------------
+# Academic Details & Submission Workflow
+# -----------------------------------------------------------------------------
+def validate_academic_inputs(study_hours: float, attendance: float, previous_score: float) -> Tuple[bool, List[str]]:
+    """Validates inputs for student academic submissions."""
+    return validate_student_inputs(study_hours, attendance, previous_score)
 
-# ---------------------------------------------------------
-# Academic Details Submission & Teacher Review Workflow
-# ---------------------------------------------------------
-def validate_academic_inputs(
-    attendance: float,
-    study_hours: float,
-    assignment_marks: float,
-    exam_marks: float
-) -> Tuple[bool, List[str]]:
-    """Validates student academic parameters with strict ranges."""
-    errors = []
-    if attendance is None or attendance < 0.0 or attendance > 100.0:
-        errors.append("Attendance must be between 0% and 100%.")
-    if study_hours is None or study_hours < 0.0 or study_hours > 16.0:
-        errors.append("Daily Study Hours must be between 0.0 and 16.0 hours.")
-    if assignment_marks is None or assignment_marks < 0.0 or assignment_marks > 100.0:
-        errors.append("Assignment Marks must be between 0 and 100.")
-    if exam_marks is None or exam_marks < 0.0 or exam_marks > 100.0:
-        errors.append("Examination Marks must be between 0 and 100.")
-    return (len(errors) == 0, errors)
 
 def submit_student_academic_details(
     roll_number: str,
     name: str,
-    email: str,
-    course_branch: str,
-    attendance: float,
+    course: str,
     study_hours: float,
-    assignment_marks: float,
-    exam_marks: float
+    attendance: float,
+    previous_score: float,
+    predicted_score: float,
+    performance_category: str
 ) -> Tuple[bool, str]:
-    """
-    Saves or updates a student's academic details with status 'Pending Review'.
-    If previous submission was rejected or pending, updates the existing row.
-    """
-    records_path = get_records_path()
-    try:
-        df = load_student_records()
-        cleaned_roll = roll_number.strip().upper()
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    """Saves a student academic submission awaiting review."""
+    initialize_records()
+    df = load_student_records()
 
-        # Check if record already exists for this roll number
-        match_idx = df.index[df["Student_ID"].astype(str).str.strip().str.upper() == cleaned_roll].tolist()
+    record = {
+        "record_id": uuid.uuid4().hex,
+        "roll_number": roll_number.strip().upper(),
+        "name": name.strip(),
+        "course": course.strip(),
+        "study_hours": float(study_hours),
+        "attendance": float(attendance),
+        "previous_score": float(previous_score),
+        "predicted_score": round(float(predicted_score), 2),
+        "actual_score": "",
+        "performance_category": performance_category,
+        "status": "Submitted",
+        "teacher_remarks": "",
+        "reviewed_by": "",
+        "submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "reviewed_at": ""
+    }
 
-        if match_idx:
-            idx = match_idx[0]
-            df.at[idx, "Name"] = name
-            df.at[idx, "Attendance_Percentage"] = float(attendance)
-            df.at[idx, "Study_Hours_Per_Day"] = float(study_hours)
-            df.at[idx, "Assignment_Marks"] = float(assignment_marks)
-            df.at[idx, "Exam_Marks"] = float(exam_marks)
-            df.at[idx, "Submission_Status"] = "Pending Review"
-            df.at[idx, "Submission_Date"] = now_str
-            df.at[idx, "Student_Email"] = email
-            df.at[idx, "Course_Branch"] = course_branch
-            # Preserve or clear previous remarks on new submission
-            df.at[idx, "Teacher_Remarks"] = "Awaiting teacher review."
-        else:
-            new_record = {
-                "Student_ID": cleaned_roll,
-                "Name": name,
-                "Attendance_Percentage": float(attendance),
-                "Study_Hours_Per_Day": float(study_hours),
-                "Assignment_Marks": float(assignment_marks),
-                "Exam_Marks": float(exam_marks),
-                "Performance_Category": "Pending Review",
-                "Submission_Status": "Pending Review",
-                "Teacher_Remarks": "Awaiting teacher review.",
-                "Submission_Date": now_str,
-                "Student_Email": email,
-                "Course_Branch": course_branch
-            }
-            df = pd.concat([df, pd.DataFrame([new_record])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame([record])], ignore_index=True)
+    df.to_csv(STUDENT_RECORDS_PATH, index=False)
+    return True, "Academic details submitted successfully!"
 
-        df.to_csv(records_path, index=False)
-        return True, "Academic details successfully submitted for Teacher review!"
-    except Exception as e:
-        return False, f"Failed to submit details: {str(e)}"
 
-def get_student_submission(roll_number: str) -> Optional[Dict]:
-    """Retrieves the record corresponding to a specific student's roll number."""
+def get_student_submission(roll_number: str) -> Optional[Dict[str, Any]]:
+    """Fetches the latest academic submission for a given roll number."""
     df = load_student_records()
     if df.empty:
         return None
-    cleaned_roll = roll_number.strip().upper()
-    matches = df[df["Student_ID"].astype(str).str.strip().str.upper() == cleaned_roll]
-    if matches.empty:
+    matched = df[df["roll_number"].astype(str).str.upper() == roll_number.strip().upper()]
+    if matched.empty:
         return None
-    return matches.iloc[0].to_dict()
+    return matched.iloc[-1].to_dict()
+
 
 def teacher_review_submission(
-    student_id: str,
-    action: str,  # 'Approved' or 'Rejected'
+    record_id: str,
+    teacher_name: str,
+    status: str,
     remarks: str,
-    predicted_category: Optional[str] = None
+    actual_score: Optional[float] = None
 ) -> Tuple[bool, str]:
-    """
-    Allows a teacher to Approve or Reject a student's submission with remarks.
-    If Approved, updates the Performance_Category with the ML predicted tier.
-    """
-    records_path = get_records_path()
+    """Records teacher feedback and reviews on a student submission."""
+    initialize_records()
+    df = load_student_records()
+    if df.empty or (df["record_id"] != record_id).all():
+        return False, "Submission record not found."
+
+    df.loc[df["record_id"] == record_id, "status"] = status
+    df.loc[df["record_id"] == record_id, "teacher_remarks"] = remarks.strip()
+    df.loc[df["record_id"] == record_id, "reviewed_by"] = teacher_name.strip()
+    df.loc[df["record_id"] == record_id, "reviewed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if actual_score is not None:
+        df.loc[df["record_id"] == record_id, "actual_score"] = float(actual_score)
+
+    df.to_csv(STUDENT_RECORDS_PATH, index=False)
+    return True, "Submission reviewed successfully!"
+
+
+# -----------------------------------------------------------------------------
+# Learning Goals Management
+# -----------------------------------------------------------------------------
+def initialize_goals():
+    """Initializes student_goals.csv if missing."""
+    if not STUDENT_GOALS_PATH.exists() or os.stat(STUDENT_GOALS_PATH).st_size == 0:
+        columns = [
+            "goal_id",
+            "roll_number",
+            "title",
+            "category",
+            "target_date",
+            "status",
+            "created_at"
+        ]
+        df = pd.DataFrame(columns=columns)
+        df.to_csv(STUDENT_GOALS_PATH, index=False)
+
+
+def get_student_goals(roll_number: str) -> pd.DataFrame:
+    """Returns learning goals for a given student."""
+    initialize_goals()
     try:
-        df = load_student_records()
-        cleaned_id = student_id.strip().upper()
-        match_idx = df.index[df["Student_ID"].astype(str).str.strip().str.upper() == cleaned_id].tolist()
+        df = pd.read_csv(STUDENT_GOALS_PATH)
+        if df.empty:
+            return df
+        return df[df["roll_number"].astype(str).str.upper() == roll_number.strip().upper()]
+    except Exception:
+        return pd.DataFrame()
 
-        if not match_idx:
-            return False, f"Student submission for '{cleaned_id}' not found."
 
-        idx = match_idx[0]
-        cleaned_remarks = remarks.strip() if remarks else ""
+def add_student_goal(
+    roll_number: str,
+    title: str,
+    category: str,
+    target_date: str
+) -> Tuple[bool, str]:
+    """Creates a new learning goal for a student."""
+    initialize_goals()
+    if not title.strip():
+        return False, "Goal title cannot be empty."
 
-        if action == "Approved":
-            df.at[idx, "Submission_Status"] = "Approved"
-            if predicted_category:
-                df.at[idx, "Performance_Category"] = predicted_category
-            df.at[idx, "Teacher_Remarks"] = cleaned_remarks if cleaned_remarks else "Approved by Course Faculty."
-            msg = f"Submission for {cleaned_id} was successfully APPROVED!"
-        elif action == "Rejected":
-            df.at[idx, "Submission_Status"] = "Rejected"
-            df.at[idx, "Teacher_Remarks"] = cleaned_remarks if cleaned_remarks else "Submission rejected. Please review faculty remarks and resubmit."
-            msg = f"Submission for {cleaned_id} was REJECTED with feedback."
-        else:
-            return False, f"Invalid review action: '{action}'."
+    df = pd.read_csv(STUDENT_GOALS_PATH)
+    new_goal = {
+        "goal_id": uuid.uuid4().hex,
+        "roll_number": roll_number.strip().upper(),
+        "title": title.strip(),
+        "category": category.strip(),
+        "target_date": str(target_date),
+        "status": "In Progress",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-        df.to_csv(records_path, index=False)
-        return True, msg
-    except Exception as e:
-        return False, f"Failed to update submission: {str(e)}"
+    df = pd.concat([df, pd.DataFrame([new_goal])], ignore_index=True)
+    df.to_csv(STUDENT_GOALS_PATH, index=False)
+    return True, "Learning goal added successfully!"
 
-# ---------------------------------------------------------
-# Input Validation for Teacher Add Student Form
-# ---------------------------------------------------------
-def validate_student_inputs(
-    student_id: str,
-    name: str,
-    attendance: float,
-    study_hours: float,
-    assignment_marks: float,
-    exam_marks: float,
-    existing_ids: List[str] = None
-) -> Tuple[bool, List[str]]:
-    """Validates user inputs with descriptive error messages."""
-    errors = []
 
-    # Student ID validation
-    cleaned_id = student_id.strip().upper()
-    if not cleaned_id:
-        errors.append("Student ID cannot be empty.")
-    elif not re.match(r"^[A-Z0-9_-]{3,20}$", cleaned_id):
-        errors.append("Student ID must be 3-20 alphanumeric characters (e.g., STU101, CS2024_01).")
-    elif existing_ids and cleaned_id in [str(i).strip().upper() for i in existing_ids]:
-        errors.append(f"Student ID '{cleaned_id}' already exists. Please use a unique ID.")
+def update_student_goal_status(goal_id: str, new_status: str) -> Tuple[bool, str]:
+    """Updates the status of a student goal."""
+    initialize_goals()
+    df = pd.read_csv(STUDENT_GOALS_PATH)
+    if df.empty or (df["goal_id"] != goal_id).all():
+        return False, "Goal not found."
 
-    # Name validation
-    cleaned_name = name.strip()
-    if not cleaned_name:
-        errors.append("Student Name cannot be empty.")
-    elif len(cleaned_name) < 2:
-        errors.append("Student Name must be at least 2 characters long.")
-    elif not re.match(r"^[a-zA-Z\s\.]+$", cleaned_name):
-        errors.append("Student Name must contain only alphabets, spaces, and periods.")
+    df.loc[df["goal_id"] == goal_id, "status"] = new_status
+    df.to_csv(STUDENT_GOALS_PATH, index=False)
+    return True, f"Goal marked as {new_status}!"
 
-    # Numeric bounds
-    if attendance is None or attendance < 0.0 or attendance > 100.0:
-        errors.append("Attendance must be a valid percentage between 0% and 100%.")
 
-    if study_hours is None or study_hours < 0.0 or study_hours > 24.0:
-        errors.append("Daily Study Hours must be between 0.0 and 24.0 hours.")
-
-    if assignment_marks is None or assignment_marks < 0.0 or assignment_marks > 100.0:
-        errors.append("Assignment Marks must be between 0 and 100.")
-
-    if exam_marks is None or exam_marks < 0.0 or exam_marks > 100.0:
-        errors.append("Exam Marks must be between 0 and 100.")
-
-    return (len(errors) == 0, errors)
-
-# ---------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Actionable Recommendations Engine
-# ---------------------------------------------------------
-def generate_recommendations(
-    attendance: float,
-    study_hours: float,
-    assignment_marks: float,
-    exam_marks: float,
-    prediction: str
-) -> List[Dict[str, str]]:
-    """
-    Generates intelligent, actionable improvement tips based on individual metric deficits.
-    Returns a list of dicts with 'area', 'type', and 'message'.
-    """
+# -----------------------------------------------------------------------------
+def generate_recommendations(study_hours: float, attendance: float, previous_score: float, predicted_score: float) -> List[Dict[str, str]]:
+    """Generates personalized academic recommendations."""
     recommendations = []
 
-    # Attendance evaluation
     if attendance < 75.0:
         recommendations.append({
-            "area": "Classroom Attendance",
-            "type": "warning",
-            "message": f"Attendance is {attendance:.1f}%, which is below the mandatory 75% university norm. Attend all upcoming lectures and practical labs to avoid debarment."
+            "title": "Improve Class Attendance",
+            "category": "Attendance",
+            "priority": "High",
+            "advice": f"Your current attendance is {attendance:.1f}%. Aim for at least 80% to avoid missing crucial lectures."
         })
-    elif attendance < 85.0:
+    elif attendance >= 90.0:
         recommendations.append({
-            "area": "Classroom Attendance",
-            "type": "info",
-            "message": f"Attendance is satisfactory ({attendance:.1f}%), but aim for 85%+ to maximize classroom interaction and internal assessments."
-        })
-    else:
-        recommendations.append({
-            "area": "Classroom Attendance",
-            "type": "success",
-            "message": f"Excellent attendance record ({attendance:.1f}%). Consistent presence aids comprehension of core concepts."
+            "title": "Maintain Exemplary Attendance",
+            "category": "Attendance",
+            "priority": "Low",
+            "advice": "Excellent attendance! Staying consistent ensures you don't miss exam tips and discussions."
         })
 
-    # Study hours evaluation
-    if study_hours < 2.0:
+    if study_hours < 3.0:
         recommendations.append({
-            "area": "Daily Self-Study",
-            "type": "warning",
-            "message": f"Dedicated study time ({study_hours:.1f} hrs/day) is insufficient. Aim for at least 2.5 to 3 hours daily using focused 25-minute Pomodoro sessions."
+            "title": "Increase Self-Study Hours",
+            "category": "Study Habits",
+            "priority": "High",
+            "advice": "Daily self-study under 3 hours can impact exam readiness. Aim for 3.5 to 4.5 hours daily."
         })
-    elif study_hours < 4.0:
+    elif study_hours > 7.0:
         recommendations.append({
-            "area": "Daily Self-Study",
-            "type": "info",
-            "message": f"Current study routine ({study_hours:.1f} hrs/day) is balanced. Keep a weekend revision slot for difficult subject topics."
-        })
-    else:
-        recommendations.append({
-            "area": "Daily Self-Study",
-            "type": "success",
-            "message": f"High self-study commitment ({study_hours:.1f} hrs/day). Ensure periodic breaks to prevent mental burnout."
+            "title": "Balance Study and Rest",
+            "category": "Wellness",
+            "priority": "Medium",
+            "advice": "High study hours are great, but ensure you take adequate breaks to prevent burnout."
         })
 
-    # Assignment marks evaluation
-    if assignment_marks < 50.0:
+    if previous_score < 60.0:
         recommendations.append({
-            "area": "Assignments & Coursework",
-            "type": "warning",
-            "message": f"Assignment score is {assignment_marks:.1f}/100. Review faculty feedback, solve practice problem sets, and seek peer group assistance."
-        })
-    elif assignment_marks < 75.0:
-        recommendations.append({
-            "area": "Assignments & Coursework",
-            "type": "info",
-            "message": f"Assignment score is moderate ({assignment_marks:.1f}/100). Focus on timely submissions and thorough problem explanations."
-        })
-    else:
-        recommendations.append({
-            "area": "Assignments & Coursework",
-            "type": "success",
-            "message": f"Strong coursework score ({assignment_marks:.1f}/100). Demonstrates steady mastery over ongoing syllabus topics."
+            "title": "Strengthen Core Fundamentals",
+            "category": "Academics",
+            "priority": "High",
+            "advice": "Review past exam papers and consult teachers during office hours to solidify foundational concepts."
         })
 
-    # Exam marks evaluation
-    if exam_marks < 50.0:
+    if predicted_score >= 80.0:
         recommendations.append({
-            "area": "Exam Preparation",
-            "type": "warning",
-            "message": f"Exam score is {exam_marks:.1f}/100. Solve at least 3 previous-year exam papers, consult course teachers during office hours, and re-attempt failed test problems."
+            "title": "Aim for Academic Honors",
+            "category": "Excellence",
+            "priority": "Low",
+            "advice": "Your predicted trajectory is strong! Practice advanced problems and assist peers to reinforce mastery."
         })
-    elif exam_marks < 75.0:
+    elif predicted_score < 50.0:
         recommendations.append({
-            "area": "Exam Preparation",
-            "type": "info",
-            "message": f"Exam score is {exam_marks:.1f}/100. Practice time-bound mock exams to enhance accuracy and answer presentation."
-        })
-    else:
-        recommendations.append({
-            "area": "Exam Preparation",
-            "type": "success",
-            "message": f"Outstanding exam score ({exam_marks:.1f}/100). Maintain this standard by engaging with higher-order conceptual questions."
-        })
-
-    # Overall Category Roadmap
-    if prediction == "Needs Improvement":
-        recommendations.append({
-            "area": "Overall Action Plan",
-            "type": "action",
-            "message": "High-Priority Plan: Schedule a 1-on-1 academic mentoring session with your course faculty, form a dedicated study circle, and draft a structured 30-day recovery plan."
-        })
-    elif prediction == "Average":
-        recommendations.append({
-            "area": "Overall Action Plan",
-            "type": "action",
-            "message": "Advancement Plan: You have a dependable foundation. Increasing daily revision by 1 hour and targeting 80%+ on upcoming tests will promote you to the 'Good' tier."
-        })
-    elif prediction == "Good":
-        recommendations.append({
-            "area": "Overall Action Plan",
-            "type": "action",
-            "message": "Enrichment Plan: Keep leading the class! Consider building open-source projects, participating in technical competitions, or mentoring classmates."
+            "title": "Seek Immediate Academic Support",
+            "category": "Remedial",
+            "priority": "High",
+            "advice": "Schedule a 1-on-1 session with your course instructor to formulate an urgent recovery study plan."
         })
 
     return recommendations
+
+
+# -----------------------------------------------------------------------------
+# Comparison & Metric Delta Calculations
+# -----------------------------------------------------------------------------
+def format_diff_magnitude(magnitude: float) -> str:
+    """
+    Rounds magnitude to 1 decimal place for readability.
+    If a non-zero difference rounds to 0.0, displays enough decimal places
+    to show that the difference is non-zero rather than incorrectly showing zero.
+    """
+    formatted = f"{magnitude:.1f}"
+    if float(formatted) == 0.0 and magnitude > 0:
+        for d in range(2, 11):
+            candidate = f"{magnitude:.{d}f}"
+            if float(candidate) > 0:
+                trimmed = candidate.rstrip('0').rstrip('.')
+                return trimmed if float(trimmed) > 0 else candidate
+        return f"{magnitude:.6f}".rstrip('0').rstrip('.')
+    return formatted
+
+
+def get_comparison_delta(student_val: float, class_avg: float, unit: str) -> Tuple[str, str]:
+    """
+    Computes directional comparison against class average following strict rules:
+    - Below average (student_val < class_avg): ↓ X units below class average (red)
+    - Above average (student_val > class_avg): ↑ X units above class average (green)
+    - Exactly equal (student_val == class_avg): At class average (off)
+    - Strict zero-tolerance threshold: no epsilon/tolerance range.
+    - Non-negative magnitude alongside appropriate directional indicator (no redundant negative signs).
+    - If non-zero difference rounds to 0.0, displays enough decimal places to show it is non-zero.
+    Returns:
+        (delta_text, delta_color)
+    """
+    student_val_f = float(student_val)
+    class_avg_f = float(class_avg)
+    diff = student_val_f - class_avg_f
+
+    if student_val_f < class_avg_f:
+        mag = abs(diff)
+        mag_str = format_diff_magnitude(mag)
+        return f"↓ {mag_str} {unit} below class average", "red"
+    elif student_val_f > class_avg_f:
+        mag = abs(diff)
+        mag_str = format_diff_magnitude(mag)
+        return f"↑ {mag_str} {unit} above class average", "green"
+    else:
+        return "At class average", "off"
