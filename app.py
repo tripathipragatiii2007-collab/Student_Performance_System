@@ -34,13 +34,14 @@ Features:
 import os
 import io
 import json
+import inspect
 import joblib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 
 # Resolve project directories
 BASE_DIR = Path(__file__).resolve().parent
@@ -72,7 +73,8 @@ from utils import (
     teacher_review_submission,
     get_student_goals,
     add_student_goal,
-    update_student_goal_status
+    update_student_goal_status,
+    get_comparison_delta
 )
 
 # ---------------------------------------------------------
@@ -645,6 +647,12 @@ st.markdown("""
         color: #7663C7 !important;
     }
 
+    /* Hide Streamlit automatically generated 'Press Enter to submit form' hint */
+    div[class*="st-key-auth_card"] [data-testid="InputInstructions"],
+    div[class*="st-key-auth_card"] .stInputInstructions {
+        display: none !important;
+    }
+
     /* Auth Primary Sign In Button */
     div[class*="st-key-auth_card"] [data-testid="stFormSubmitButton"] > button,
     div[class*="st-key-auth_card"] button[kind="primary"] {
@@ -919,6 +927,228 @@ st.markdown("""
         color: var(--text-main) !important;
     }
 
+    /* Date Picker & Calendar Styling (Theme-Aware: Light & Dark Mode) */
+    :root {
+        --date-bg: #FFFFFF;
+        --date-text: #30294B;
+        --date-text-muted: #77718A;
+        --date-border: #E8E2F2;
+        --date-hover-bg: #E9E2FF;
+        --date-hover-text: #30294B;
+        --date-selected-bg: #7663C7;
+        --date-selected-text: #FFFFFF;
+        --date-today-color: #7663C7;
+        --date-disabled-text: rgba(119, 113, 138, 0.38);
+        --date-dropdown-bg: #FFFFFF;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --date-bg: #1E1B2E;
+            --date-text: #F7F5FF;
+            --date-text-muted: #B2ACCD;
+            --date-border: #3E3859;
+            --date-hover-bg: #352F4E;
+            --date-hover-text: #FFFFFF;
+            --date-selected-bg: #7663C7;
+            --date-selected-text: #FFFFFF;
+            --date-today-color: #B8A0F5;
+            --date-disabled-text: rgba(247, 245, 255, 0.3);
+            --date-dropdown-bg: #1E1B2E;
+        }
+    }
+
+    [data-theme="dark"],
+    [data-base-theme="dark"],
+    body[data-theme="dark"],
+    .stApp[data-theme="dark"] {
+        --date-bg: #1E1B2E !important;
+        --date-text: #F7F5FF !important;
+        --date-text-muted: #B2ACCD !important;
+        --date-border: #3E3859 !important;
+        --date-hover-bg: #352F4E !important;
+        --date-hover-text: #FFFFFF !important;
+        --date-selected-bg: #7663C7 !important;
+        --date-selected-text: #FFFFFF !important;
+        --date-today-color: #B8A0F5 !important;
+        --date-disabled-text: rgba(247, 245, 255, 0.3) !important;
+        --date-dropdown-bg: #1E1B2E !important;
+    }
+
+    /* Date Input Field Container */
+    [data-testid="stDateInput"] [data-testid="stDateInputField"] {
+        border-radius: 10px !important;
+        border: 1px solid var(--date-border) !important;
+        background-color: var(--date-bg) !important;
+        color: var(--date-text) !important;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    [data-testid="stDateInput"] [data-testid="stDateInputField"]:focus-within {
+        border-color: #7663C7 !important;
+        box-shadow: 0 0 0 2px rgba(118, 99, 199, 0.25) !important;
+    }
+    [data-testid="stDateInput"] [data-testid="stDateInputField"] span {
+        color: var(--date-text) !important;
+        -webkit-text-fill-color: var(--date-text) !important;
+    }
+    [data-testid="stDateInput"] [data-testid="stDateInputField"] span[data-placeholder="true"] {
+        color: var(--date-text-muted) !important;
+        -webkit-text-fill-color: var(--date-text-muted) !important;
+    }
+
+    /* Calendar Popup Container */
+    [data-testid="stDateInputCalendar"],
+    #stFloatingOverlayPortal [data-testid="stDateInputCalendar"] {
+        background-color: var(--date-bg) !important;
+        border: 1px solid var(--date-border) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22) !important;
+        padding: 12px !important;
+    }
+
+    /* Calendar Header & Month/Year Buttons */
+    [data-testid="stDateInputCalendar"] header {
+        background: transparent !important;
+    }
+    [data-testid="stDateInputCalendar"] header h2 {
+        color: var(--date-text) !important;
+    }
+    [data-testid="stDateInputCalendar"] header button[aria-label="month"],
+    [data-testid="stDateInputCalendar"] header button[aria-label="year"] {
+        background-color: var(--date-hover-bg) !important;
+        color: var(--date-text) !important;
+        border: 1px solid var(--date-border) !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 13.5px !important;
+        padding: 4px 10px !important;
+    }
+    [data-testid="stDateInputCalendar"] header button[aria-label="month"] svg,
+    [data-testid="stDateInputCalendar"] header button[aria-label="year"] svg {
+        fill: var(--date-text) !important;
+        color: var(--date-text) !important;
+    }
+
+    /* Navigation Arrows (Prev / Next Month) */
+    [data-testid="stDateInputCalendar"] header button[slot="previous"],
+    [data-testid="stDateInputCalendar"] header button[slot="next"],
+    [data-testid="stDateInputCalendar"] header button[aria-label="Previous month"],
+    [data-testid="stDateInputCalendar"] header button[aria-label="Next month"] {
+        background: transparent !important;
+        border-radius: 8px !important;
+        color: var(--date-text) !important;
+    }
+    [data-testid="stDateInputCalendar"] header button[slot="previous"]:hover,
+    [data-testid="stDateInputCalendar"] header button[slot="next"]:hover,
+    [data-testid="stDateInputCalendar"] header button[aria-label="Previous month"]:hover,
+    [data-testid="stDateInputCalendar"] header button[aria-label="Next month"]:hover {
+        background-color: var(--date-hover-bg) !important;
+    }
+    [data-testid="stDateInputCalendar"] header button[slot="previous"] svg,
+    [data-testid="stDateInputCalendar"] header button[slot="next"] svg,
+    [data-testid="stDateInputCalendar"] header button[aria-label="Previous month"] svg,
+    [data-testid="stDateInputCalendar"] header button[aria-label="Next month"] svg {
+        fill: var(--date-text) !important;
+        color: var(--date-text) !important;
+    }
+
+    /* Weekday Table Headers (S M T W T F S) */
+    [data-testid="stDateInputCalendar"] table thead th {
+        color: var(--date-text-muted) !important;
+        font-weight: 600 !important;
+        font-size: 12px !important;
+        background: transparent !important;
+    }
+
+    /* Date Grid Numbers */
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[role="button"] {
+        color: var(--date-text) !important;
+        font-size: 13.5px !important;
+        font-weight: 500 !important;
+        border-radius: 8px !important;
+        background-color: transparent !important;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    /* Hover State on Date Numbers */
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[role="button"]:hover {
+        background-color: var(--date-hover-bg) !important;
+        color: var(--date-hover-text) !important;
+    }
+
+    /* Today's Date Indicator */
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[data-today="true"] {
+        border: 2px solid var(--date-today-color) !important;
+        color: var(--date-today-color) !important;
+        font-weight: 700 !important;
+    }
+
+    /* Selected Date Highlight */
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[data-selected="true"],
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[aria-selected="true"] {
+        background-color: var(--date-selected-bg) !important;
+        color: var(--date-selected-text) !important;
+        font-weight: 700 !important;
+        border: none !important;
+        box-shadow: 0 2px 8px rgba(118, 99, 199, 0.45) !important;
+    }
+
+    /* Disabled & Outside-Month Dates */
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[data-disabled="true"],
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[data-outside-month="true"],
+    [data-testid="stDateInputCalendar"] tbody td[role="gridcell"] div[data-outside-visible-range="true"] {
+        color: var(--date-disabled-text) !important;
+        pointer-events: none !important;
+    }
+
+    /* Month and Year Dropdown Menu (Listbox) - All 12 months visible without truncation */
+    [data-testid="stDateInputHeaderPickerPopover"],
+    .stDateInputHeaderPickerPopover {
+        background-color: var(--date-dropdown-bg) !important;
+        border: 1px solid var(--date-border) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25) !important;
+    }
+
+    [data-testid="stDateInputHeaderPickerPopover"] [role="listbox"],
+    .stDateInputHeaderPickerPopover [role="listbox"],
+    #stFloatingOverlayPortal [role="listbox"] {
+        background-color: var(--date-dropdown-bg) !important;
+        border: 1px solid var(--date-border) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25) !important;
+        max-height: min(480px, 85vh) !important;
+        overflow-y: auto !important;
+        padding: 4px !important;
+    }
+
+    /* Month and Year Dropdown Options */
+    [data-testid="stDateInputHeaderPickerPopover"] [role="listbox"] [role="option"],
+    .stDateInputHeaderPickerPopover [role="listbox"] [role="option"],
+    #stFloatingOverlayPortal [role="listbox"] [role="option"] {
+        color: var(--date-text) !important;
+        font-size: 13px !important;
+        padding: 5px 10px !important;
+        border-radius: 6px !important;
+        cursor: pointer !important;
+    }
+    [data-testid="stDateInputHeaderPickerPopover"] [role="listbox"] [role="option"]:hover,
+    [data-testid="stDateInputHeaderPickerPopover"] [role="listbox"] [role="option"][data-focused="true"],
+    .stDateInputHeaderPickerPopover [role="listbox"] [role="option"]:hover,
+    .stDateInputHeaderPickerPopover [role="listbox"] [role="option"][data-focused="true"],
+    #stFloatingOverlayPortal [role="listbox"] [role="option"]:hover,
+    #stFloatingOverlayPortal [role="listbox"] [role="option"][data-focused="true"] {
+        background-color: var(--date-hover-bg) !important;
+        color: var(--date-hover-text) !important;
+    }
+    [data-testid="stDateInputHeaderPickerPopover"] [role="listbox"] [role="option"][data-selected="true"],
+    .stDateInputHeaderPickerPopover [role="listbox"] [role="option"][data-selected="true"],
+    #stFloatingOverlayPortal [role="listbox"] [role="option"][data-selected="true"] {
+        background-color: var(--date-selected-bg) !important;
+        color: var(--date-selected-text) !important;
+        font-weight: 600 !important;
+    }
+
     /* Tabs, Metrics, DataTables */
     [data-testid="stTabs"] button {
         color: var(--text-secondary) !important;
@@ -939,6 +1169,15 @@ st.markdown("""
     }
     [data-testid="stMetricLabel"] { font-size: 13px !important; color: var(--text-secondary) !important; }
     [data-testid="stMetricValue"] { font-size: 26px !important; font-weight: 700 !important; color: var(--text-main) !important; }
+    [data-testid="stMetricDelta"] {
+        white-space: normal !important;
+        font-size: 12.5px !important;
+        line-height: 1.35 !important;
+    }
+    [data-testid="stMetricDelta"] > div {
+        white-space: normal !important;
+        overflow: visible !important;
+    }
     [data-testid="stDataFrame"], [data-testid="stTable"] {
         background: #FFFFFF !important;
         border-radius: 14px !important;
@@ -1120,6 +1359,17 @@ def apply_pastel_plot_style(fig, ax):
     for spine in ax.spines.values():
         spine.set_color('#E9E6F2')
     ax.grid(axis='y', linestyle='--', alpha=0.5, color='#F0EDF7')
+
+def render_comparison_metric(label: str, value_str: str, student_val: float, class_avg: float, unit: str):
+    """Renders a comparative academic metric card adhering to strict directional, zero-tolerance, and formatting rules."""
+    delta_text, delta_color = get_comparison_delta(student_val, class_avg, unit)
+    metric_kwargs = {
+        "delta": delta_text,
+        "delta_color": delta_color,
+    }
+    if "delta_arrow" in inspect.signature(st.metric).parameters:
+        metric_kwargs["delta_arrow"] = "off"
+    st.metric(label, value_str, **metric_kwargs)
 
 # Initialize databases & model
 initialize_records()
@@ -1610,7 +1860,14 @@ if page == "🏠 Student Dashboard":
         with st.form("add_student_goal_form", clear_on_submit=True):
             goal_title = st.text_input("Goal Title *", placeholder="e.g., Target 85%+ in Data Structures exam")
             goal_target = st.number_input("Target Marks (out of 100) *", min_value=1.0, max_value=100.0, value=80.0, step=1.0)
-            goal_date = st.date_input("Target Completion Date (Optional)", value=None, key="student_goal_target_date")
+            today_date = date.today()
+            goal_date = st.date_input(
+                "Target Completion Date (Optional)",
+                value=None,
+                min_value=date(today_date.year - 5, 1, 1),
+                max_value=date(today_date.year + 10, 12, 31),
+                key="student_goal_target_date"
+            )
             save_goal = st.form_submit_button("Save Goal", use_container_width=True, type="primary")
 
         if save_goal:
@@ -1930,28 +2187,36 @@ elif page == "📑 My Performance Report":
         # 4 Comparison KPIs
         m1, m2, m3, m4 = st.columns(4)
         with m1:
-            st.metric(
+            render_comparison_metric(
                 "Attendance",
                 f"{submission['Attendance_Percentage']:.1f}%",
-                delta=f"{submission['Attendance_Percentage'] - class_att_avg:+.1f}% vs Class"
+                submission["Attendance_Percentage"],
+                class_att_avg,
+                "percentage points"
             )
         with m2:
-            st.metric(
+            render_comparison_metric(
                 "Study Hours",
                 f"{submission['Study_Hours_Per_Day']:.1f} hrs",
-                delta=f"{submission['Study_Hours_Per_Day'] - class_study_avg:+.1f} hrs vs Class"
+                submission["Study_Hours_Per_Day"],
+                class_study_avg,
+                "hours"
             )
         with m3:
-            st.metric(
+            render_comparison_metric(
                 "Assignment Marks",
                 f"{submission['Assignment_Marks']:.1f}/100",
-                delta=f"{submission['Assignment_Marks'] - class_assign_avg:+.1f} vs Class"
+                submission["Assignment_Marks"],
+                class_assign_avg,
+                "marks"
             )
         with m4:
-            st.metric(
+            render_comparison_metric(
                 "Exam Marks",
                 f"{submission['Exam_Marks']:.1f}/100",
-                delta=f"{submission['Exam_Marks'] - class_exam_avg:+.1f} vs Class"
+                submission["Exam_Marks"],
+                class_exam_avg,
+                "marks"
             )
 
         # Benchmark Bar Chart
@@ -2541,13 +2806,37 @@ elif page == "📋 Student Records & Reports":
                 class_exam_avg = df_records["Exam_Marks"].mean()
 
                 with m1:
-                    st.metric("Attendance", f"{student_data['Attendance_Percentage']:.1f}%", delta=f"{student_data['Attendance_Percentage'] - class_att_avg:+.1f}% vs Class")
+                    render_comparison_metric(
+                        "Attendance",
+                        f"{student_data['Attendance_Percentage']:.1f}%",
+                        student_data["Attendance_Percentage"],
+                        class_att_avg,
+                        "percentage points"
+                    )
                 with m2:
-                    st.metric("Study Hours", f"{student_data['Study_Hours_Per_Day']:.1f} hrs", delta=f"{student_data['Study_Hours_Per_Day'] - class_study_avg:+.1f} hrs vs Class")
+                    render_comparison_metric(
+                        "Study Hours",
+                        f"{student_data['Study_Hours_Per_Day']:.1f} hrs",
+                        student_data["Study_Hours_Per_Day"],
+                        class_study_avg,
+                        "hours"
+                    )
                 with m3:
-                    st.metric("Assignment Marks", f"{student_data['Assignment_Marks']:.1f}/100", delta=f"{student_data['Assignment_Marks'] - class_assign_avg:+.1f} vs Class")
+                    render_comparison_metric(
+                        "Assignment Marks",
+                        f"{student_data['Assignment_Marks']:.1f}/100",
+                        student_data["Assignment_Marks"],
+                        class_assign_avg,
+                        "marks"
+                    )
                 with m4:
-                    st.metric("Exam Marks", f"{student_data['Exam_Marks']:.1f}/100", delta=f"{student_data['Exam_Marks'] - class_exam_avg:+.1f} vs Class")
+                    render_comparison_metric(
+                        "Exam Marks",
+                        f"{student_data['Exam_Marks']:.1f}/100",
+                        student_data["Exam_Marks"],
+                        class_exam_avg,
+                        "marks"
+                    )
 
                 st.markdown('<div class="card-title" style="margin-top: 18px;">📊 Individual vs Class Benchmark</div>', unsafe_allow_html=True)
                 fig_bench, ax_bench = plt.subplots(figsize=(7, 3.2), dpi=140)
